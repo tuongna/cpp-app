@@ -40,7 +40,7 @@ FetchContent_Declare(
     GIT_TAG        0.12.0
     GIT_SHALLOW    TRUE
 )
-FetchContent_MakeAvailable(webview)
+FetchContent_Populate(webview)
 
 set(SOURCES
     src/main.cpp
@@ -48,11 +48,19 @@ set(SOURCES
     src/Launcher.cpp
 )
 
-add_executable(${PROJECT_NAME} ${SOURCES})
-
+if(APPLE)
+    enable_language(OBJCXX)
+    add_executable(${PROJECT_NAME} MACOSX_BUNDLE ${SOURCES})
+    set_source_files_properties(src/main.cpp PROPERTIES LANGUAGE OBJCXX)
+    set_target_properties(${PROJECT_NAME} PROPERTIES
+        MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_SOURCE_DIR}/src/Info.plist
+    )
+else()
+    add_executable(${PROJECT_NAME} ${SOURCES})
+endif()
 target_include_directories(${PROJECT_NAME} PRIVATE
     include
-    ${webview_SOURCE_DIR}
+    ${webview_SOURCE_DIR}/core/include
     ${httplib_SOURCE_DIR}
 )
 

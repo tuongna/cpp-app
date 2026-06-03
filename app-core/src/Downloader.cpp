@@ -1,7 +1,9 @@
 #include "Downloader.h"
 
-#define CPPHTTPLIB_OPENSSL_SUPPORT 0
+// NOTE: Do NOT define CPPHTTPLIB_OPENSSL_SUPPORT here.
+// httplib.h uses #ifdef (not #if), so even defining it to 0 enables OpenSSL.
 #include "httplib.h"
+
 
 #include <filesystem>
 #include <iostream>
