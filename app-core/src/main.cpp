@@ -1,6 +1,7 @@
 #include <webview/webview.h>
 #include "Downloader.h"
 #include "Launcher.h"
+#include "Json.h"
 #include "httplib.h"
 
 #include <thread>
@@ -31,234 +32,19 @@ namespace fs = std::filesystem;
 #endif
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Simple JSON builder for message passing
-// ──────────────────────────────────────────────────────────────────────────────
-class SimpleJSON {
-public:
-    SimpleJSON() : isObject(true) {}
-    
-    SimpleJSON& set(const std::string& key, const std::string& value) {
-        stringValues[key] = escapeString(value);
-        return *this;
-    }
-    
-    SimpleJSON& set(const std::string& key, int value) {
-        intValues[key] = value;
-        return *this;
-    }
-    
-    SimpleJSON& set(const std::string& key, double value) {
-        doubleValues[key] = value;
-        return *this;
-    }
-    
-    SimpleJSON& set(const std::string& key, long long value) {
-        longValues[key] = value;
-        return *this;
-    }
-    
-    SimpleJSON& set(const std::string& key, bool value) {
-        boolValues[key] = value;
-        return *this;
-    }
-    
-    SimpleJSON& setArray(const std::string& key, const std::vector<std::string>& arr) {
-        arrayValues[key] = arr;
-        return *this;
-    }
-    
-    SimpleJSON& setObject(const std::string& key, const SimpleJSON& obj) {
-        objectValues[key] = obj;
-        return *this;
-    }
-    
-    std::string toString() const {
-        std::ostringstream oss;
-        oss << "{";
-        bool first = true;
-        
-        for (const auto& [key, value] : stringValues) {
-            if (!first) oss << ",";
-            oss << "\"" << key << "\":\"" << value << "\"";
-            first = false;
-        }
-        for (const auto& [key, value] : intValues) {
-            if (!first) oss << ",";
-            oss << "\"" << key << "\":" << value;
-            first = false;
-        }
-        for (const auto& [key, value] : doubleValues) {
-            if (!first) oss << ",";
-            oss << "\"" << key << "\":" << value;
-            first = false;
-        }
-        for (const auto& [key, value] : longValues) {
-            if (!first) oss << ",";
-            oss << "\"" << key << "\":" << value;
-            first = false;
-        }
-        for (const auto& [key, value] : boolValues) {
-            if (!first) oss << ",";
-            oss << "\"" << key << "\":" << (value ? "true" : "false");
-            first = false;
-        }
-        for (const auto& [key, arr] : arrayValues) {
-            if (!first) oss << ",";
-            oss << "\"" << key << "\":[";
-            for (size_t i = 0; i < arr.size(); ++i) {
-                if (i > 0) oss << ",";
-                oss << "\"" << escapeString(arr[i]) << "\"";
-            }
-            oss << "]";
-            first = false;
-        }
-        for (const auto& [key, obj] : objectValues) {
-            if (!first) oss << ",";
-            oss << "\"" << key << "\":" << obj.toString();
-            first = false;
-        }
-        
-        oss << "}";
-        return oss.str();
-    }
-    
-private:
-    static std::string escapeString(const std::string& str) {
-        std::string result;
-        result.reserve(str.size());
-        for (char c : str) {
-            switch (c) {
-                case '"':  result += "\\\""; break;
-                case '\\': result += "\\\\"; break;
-                case '\b': result += "\\b"; break;
-                case '\f': result += "\\f"; break;
-                case '\n': result += "\\n"; break;
-                case '\r': result += "\\r"; break;
-                case '\t': result += "\\t"; break;
-                default:   result += c; break;
-            }
-        }
-        return result;
-    }
-    
-    bool isObject;
-    std::map<std::string, std::string> stringValues;
-    std::map<std::string, int> intValues;
-    std::map<std::string, double> doubleValues;
-    std::map<std::string, long long> longValues;
-    std::map<std::string, bool> boolValues;
-    std::map<std::string, std::vector<std::string>> arrayValues;
-    std::map<std::string, SimpleJSON> objectValues;
-};
-
-// Simple JSON parser for incoming messages
-class SimpleJSONParser {
-public:
-    static std::map<std::string, std::string> parse(const std::string& json) {
-        std::map<std::string, std::string> result;
-        
-        // Very basic parser - just handles simple key-value pairs
-        size_t pos = 0;
-        while (pos < json.size()) {
-            // Find key
-            size_t keyStart = json.find('"', pos);
-            if (keyStart == std::string::npos) break;
-            keyStart++;
-            
-            size_t keyEnd = json.find('"', keyStart);
-            if (keyEnd == std::string::npos) break;
-            
-            std::string key = json.substr(keyStart, keyEnd - keyStart);
-            
-            // Find colon
-            size_t colon = json.find(':', keyEnd);
-            if (colon == std::string::npos) break;
-            
-            // Find value
-            size_t valueStart = colon + 1;
-            while (valueStart < json.size() && std::isspace(json[valueStart])) valueStart++;
-            
-            std::string value;
-            if (json[valueStart] == '"') {
-                // String value
-                valueStart++;
-                size_t valueEnd = json.find('"', valueStart);
-                if (valueEnd != std::string::npos) {
-                    value = json.substr(valueStart, valueEnd - valueStart);
-                    pos = valueEnd + 1;
-                }
-            } else if (json[valueStart] == '{') {
-                // Object value - find matching }
-                int braceCount = 1;
-                size_t i = valueStart + 1;
-                while (i < json.size() && braceCount > 0) {
-                    if (json[i] == '{') braceCount++;
-                    else if (json[i] == '}') braceCount--;
-                    i++;
-                }
-                value = json.substr(valueStart, i - valueStart);
-                pos = i;
-            } else {
-                // Number or boolean
-                size_t valueEnd = json.find_first_of(",}", valueStart);
-                if (valueEnd != std::string::npos) {
-                    value = json.substr(valueStart, valueEnd - valueStart);
-                    // Trim
-                    value.erase(0, value.find_first_not_of(" \t\n\r"));
-                    value.erase(value.find_last_not_of(" \t\n\r") + 1);
-                    pos = valueEnd;
-                }
-            }
-            
-            result[key] = value;
-        }
-        
-        return result;
-    }
-    
-    static std::string getValue(const std::map<std::string, std::string>& data, 
-                               const std::string& key, 
-                               const std::string& defaultValue = "") {
-        auto it = data.find(key);
-        return (it != data.end()) ? it->second : defaultValue;
-    }
-};
-
-// ──────────────────────────────────────────────────────────────────────────────
 // Thread-safe WebView dispatcher
 // ──────────────────────────────────────────────────────────────────────────────
-struct DispatchPayload {
-    webview::webview* wv;
-    std::string       jsCode;
-};
-
-static void dispatchCallback(webview::webview* w, void* arg) {
-    auto* payload = static_cast<DispatchPayload*>(arg);
-    payload->wv->eval(payload->jsCode);
-    delete payload;
-}
-
-// Safely evaluate JS from any thread
+// Marshal a JS eval onto the WebView's UI thread. Safe to call from any thread
+// (e.g. the download/launcher worker threads).
 static void evalFromThread(webview::webview* wv, const std::string& js) {
-    auto* payload   = new DispatchPayload{wv, js};
-    wv->dispatch([payload]() {
-        payload->wv->eval(payload->jsCode);
-        delete payload;
+    wv->dispatch([wv, js]() {
+        wv->eval(js);
     });
 }
 
 // Push a JSON event object to the Vue layer
 static void pushNativeMessage(webview::webview* wv, const SimpleJSON& msg) {
-    std::string escaped = msg.toString();
-    // Escape backticks for JS template literal safety
-    std::string safe;
-    safe.reserve(escaped.size());
-    for (char c : escaped) {
-        if (c == '`')  safe += "\\`";
-        else if (c == '\\' && &c != escaped.data() + escaped.size() - 1) safe += c;
-        else safe += c;
-    }
-    std::string js = "if(window.onNativeMessage){window.onNativeMessage(" + escaped + ");}";
+    std::string js = "if(window.onNativeMessage){window.onNativeMessage(" + msg.toString() + ");}";
     evalFromThread(wv, js);
 }
 

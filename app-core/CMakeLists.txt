@@ -15,15 +15,6 @@ endif()
 
 include(FetchContent)
 
-# nlohmann/json
-FetchContent_Declare(
-    nlohmann_json
-    GIT_REPOSITORY https://github.com/nlohmann/json.git
-    GIT_TAG        v3.11.3
-    GIT_SHALLOW    TRUE
-)
-FetchContent_MakeAvailable(nlohmann_json)
-
 # cpp-httplib (header-only)
 FetchContent_Declare(
     httplib
@@ -62,10 +53,6 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     include
     ${webview_SOURCE_DIR}/core/include
     ${httplib_SOURCE_DIR}
-)
-
-target_link_libraries(${PROJECT_NAME} PRIVATE
-    nlohmann_json::nlohmann_json
 )
 
 # Platform-specific linking
