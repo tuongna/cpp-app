@@ -1,8 +1,13 @@
-#include <webview/webview.h>
+// IMPORTANT: include httplib.h (and our own clean headers) BEFORE webview.h.
+// On Linux, webview.h pulls in GTK -> X11, which #defines common words such as
+// None, Status and Success. httplib.h uses those as identifiers, so including it
+// after webview.h breaks compilation (the macros mangle httplib's namespace).
+#include "httplib.h"
 #include "Downloader.h"
 #include "Launcher.h"
 #include "Json.h"
-#include "httplib.h"
+
+#include <webview/webview.h>
 
 #include <thread>
 
