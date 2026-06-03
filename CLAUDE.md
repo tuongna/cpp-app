@@ -20,3 +20,7 @@ stop. This applies in every session — do it automatically without being asked.
 
 Stop watching immediately when the user asks (`unsubscribe_pr_activity`), and
 don't push further changes to that PR afterwards.
+
+**Auto-unwatch on close:** when a watched PR is merged or closed, call
+`unsubscribe_pr_activity` for it — there is no more CI or review activity worth
+following once the branch is merged.
