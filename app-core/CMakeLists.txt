@@ -4,25 +4,10 @@ project(SteamClone VERSION 1.0.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Release optimizations
-if(CMAKE_BUILD_TYPE STREQUAL "Release")
-    if(MSVC)
-        target_compile_options(${PROJECT_NAME} PRIVATE /O2 /Os)
-    else()
-        add_compile_options(-O2 -Os)
-    endif()
-endif()
+# Optimization is handled by CMAKE_BUILD_TYPE (e.g. -DCMAKE_BUILD_TYPE=Release
+# applies /O2 on MSVC and -O3 on GCC/Clang), so no manual compile flags here.
 
 include(FetchContent)
-
-# nlohmann/json
-FetchContent_Declare(
-    nlohmann_json
-    GIT_REPOSITORY https://github.com/nlohmann/json.git
-    GIT_TAG        v3.11.3
-    GIT_SHALLOW    TRUE
-)
-FetchContent_MakeAvailable(nlohmann_json)
 
 # cpp-httplib (header-only)
 FetchContent_Declare(
@@ -40,7 +25,7 @@ FetchContent_Declare(
     GIT_TAG        0.12.0
     GIT_SHALLOW    TRUE
 )
-FetchContent_MakeAvailable(webview)
+FetchContent_Populate(webview)
 
 set(SOURCES
     src/main.cpp
@@ -48,36 +33,50 @@ set(SOURCES
     src/Launcher.cpp
 )
 
-add_executable(${PROJECT_NAME} ${SOURCES})
-
+if(APPLE)
+    enable_language(OBJCXX)
+    add_executable(${PROJECT_NAME} MACOSX_BUNDLE ${SOURCES})
+    set_source_files_properties(src/main.cpp PROPERTIES LANGUAGE OBJCXX)
+    set_target_properties(${PROJECT_NAME} PROPERTIES
+        MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_SOURCE_DIR}/src/Info.plist
+    )
+else()
+    add_executable(${PROJECT_NAME} ${SOURCES})
+endif()
 target_include_directories(${PROJECT_NAME} PRIVATE
     include
-    ${webview_SOURCE_DIR}
+    ${webview_SOURCE_DIR}/core/include
     ${httplib_SOURCE_DIR}
-)
-
-target_link_libraries(${PROJECT_NAME} PRIVATE
-    nlohmann_json::nlohmann_json
 )
 
 # Platform-specific linking
 if(WIN32)
-    target_link_libraries(${PROJECT_NAME} PRIVATE
-        ole32
-        shell32
-        shlwapi
-    )
-    # Embed WebView2 bootstrap
+    # Fetch the WebView2 SDK (NuGet package). DOWNLOAD_NAME gives the .nupkg a
+    # .zip extension so CMake extracts it; the headers webview.h needs live in
+    # build/native/include. webview 0.12 has a built-in runtime loader, so only
+    # the headers and system libraries are required (no WebView2Loader to link).
     FetchContent_Declare(
         webview2
         URL "https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/1.0.2792.45"
+        DOWNLOAD_NAME webview2.zip
+    )
+    FetchContent_MakeAvailable(webview2)
+
+    target_include_directories(${PROJECT_NAME} PRIVATE
+        ${webview2_SOURCE_DIR}/build/native/include
+    )
+    target_link_libraries(${PROJECT_NAME} PRIVATE
+        advapi32 ole32 shell32 shlwapi user32 version
     )
     target_compile_definitions(${PROJECT_NAME} PRIVATE WEBVIEW_EDGE)
-    # Hide console window in release
+
+    # Hide the console window in release builds. WIN32_EXECUTABLE selects the
+    # WINDOWS subsystem, so point the entry point back at the standard main().
     if(CMAKE_BUILD_TYPE STREQUAL "Release")
-        set_target_properties(${PROJECT_NAME} PROPERTIES
-            WIN32_EXECUTABLE TRUE
-        )
+        set_target_properties(${PROJECT_NAME} PROPERTIES WIN32_EXECUTABLE TRUE)
+        if(MSVC)
+            target_link_options(${PROJECT_NAME} PRIVATE /ENTRY:mainCRTStartup)
+        endif()
     endif()
 elseif(APPLE)
     find_library(COCOA_LIBRARY Cocoa REQUIRED)
