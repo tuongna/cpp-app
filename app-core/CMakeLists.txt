@@ -4,14 +4,8 @@ project(SteamClone VERSION 1.0.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Release optimizations
-if(CMAKE_BUILD_TYPE STREQUAL "Release")
-    if(MSVC)
-        target_compile_options(${PROJECT_NAME} PRIVATE /O2 /Os)
-    else()
-        add_compile_options(-O2 -Os)
-    endif()
-endif()
+# Optimization is handled by CMAKE_BUILD_TYPE (e.g. -DCMAKE_BUILD_TYPE=Release
+# applies /O2 on MSVC and -O3 on GCC/Clang), so no manual compile flags here.
 
 include(FetchContent)
 
