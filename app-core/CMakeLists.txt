@@ -57,22 +57,32 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 
 # Platform-specific linking
 if(WIN32)
-    target_link_libraries(${PROJECT_NAME} PRIVATE
-        ole32
-        shell32
-        shlwapi
-    )
-    # Embed WebView2 bootstrap
+    # Fetch the WebView2 SDK (NuGet package). DOWNLOAD_NAME gives the .nupkg a
+    # .zip extension so CMake extracts it; the headers webview.h needs live in
+    # build/native/include. webview 0.12 has a built-in runtime loader, so only
+    # the headers and system libraries are required (no WebView2Loader to link).
     FetchContent_Declare(
         webview2
         URL "https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/1.0.2792.45"
+        DOWNLOAD_NAME webview2.zip
+    )
+    FetchContent_MakeAvailable(webview2)
+
+    target_include_directories(${PROJECT_NAME} PRIVATE
+        ${webview2_SOURCE_DIR}/build/native/include
+    )
+    target_link_libraries(${PROJECT_NAME} PRIVATE
+        advapi32 ole32 shell32 shlwapi user32 version
     )
     target_compile_definitions(${PROJECT_NAME} PRIVATE WEBVIEW_EDGE)
-    # Hide console window in release
+
+    # Hide the console window in release builds. WIN32_EXECUTABLE selects the
+    # WINDOWS subsystem, so point the entry point back at the standard main().
     if(CMAKE_BUILD_TYPE STREQUAL "Release")
-        set_target_properties(${PROJECT_NAME} PROPERTIES
-            WIN32_EXECUTABLE TRUE
-        )
+        set_target_properties(${PROJECT_NAME} PROPERTIES WIN32_EXECUTABLE TRUE)
+        if(MSVC)
+            target_link_options(${PROJECT_NAME} PRIVATE /ENTRY:mainCRTStartup)
+        endif()
     endif()
 elseif(APPLE)
     find_library(COCOA_LIBRARY Cocoa REQUIRED)
