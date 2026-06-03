@@ -9,7 +9,8 @@
 //
 // Scope/limitations (by design — keep messages flat):
 //   * Parser handles string, number/bool and one level of nested object values.
-//   * Parser does not unescape string contents beyond what the bridge needs.
+//   * String values may contain escaped quotes; escape sequences are decoded.
+//   * Not a general JSON library: it does not handle arrays of objects inbound.
 // ──────────────────────────────────────────────────────────────────────────────
 
 #include <string>
@@ -177,12 +178,27 @@ public:
 
             std::string value;
             if (json[valueStart] == '"') {
-                // String value
+                // String value: find the closing quote, skipping escaped quotes
+                // (an odd number of preceding backslashes means it is escaped).
                 valueStart++;
-                size_t valueEnd = json.find('"', valueStart);
-                if (valueEnd != std::string::npos) {
-                    value = json.substr(valueStart, valueEnd - valueStart);
+                size_t valueEnd = valueStart;
+                while (valueEnd < json.size()) {
+                    if (json[valueEnd] == '"') {
+                        size_t backslashes = 0;
+                        size_t k = valueEnd;
+                        while (k > valueStart && json[k - 1] == '\\') {
+                            backslashes++;
+                            k--;
+                        }
+                        if (backslashes % 2 == 0) break;
+                    }
+                    valueEnd++;
+                }
+                if (valueEnd < json.size()) {
+                    value = unescapeString(json.substr(valueStart, valueEnd - valueStart));
                     pos = valueEnd + 1;
+                } else {
+                    break;
                 }
             } else if (json[valueStart] == '{') {
                 // Object value - find matching }
@@ -218,5 +234,31 @@ public:
                                 const std::string& defaultValue = "") {
         auto it = data.find(key);
         return (it != data.end()) ? it->second : defaultValue;
+    }
+
+private:
+    // Turn JSON escape sequences back into their literal characters so values
+    // such as Windows paths ("C:\\Games") or quoted text arrive intact.
+    static std::string unescapeString(const std::string& raw) {
+        std::string out;
+        out.reserve(raw.size());
+        for (size_t i = 0; i < raw.size(); ++i) {
+            if (raw[i] == '\\' && i + 1 < raw.size()) {
+                switch (raw[i + 1]) {
+                    case '"':  out += '"';  ++i; break;
+                    case '\\': out += '\\'; ++i; break;
+                    case '/':  out += '/';  ++i; break;
+                    case 'b':  out += '\b'; ++i; break;
+                    case 'f':  out += '\f'; ++i; break;
+                    case 'n':  out += '\n'; ++i; break;
+                    case 'r':  out += '\r'; ++i; break;
+                    case 't':  out += '\t'; ++i; break;
+                    default:   out += raw[i]; break;
+                }
+            } else {
+                out += raw[i];
+            }
+        }
+        return out;
     }
 };

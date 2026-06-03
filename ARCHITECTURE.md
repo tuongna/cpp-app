@@ -96,6 +96,8 @@ Runtime flow:
 The bridge protocol is a small set of **flat** messages, so a full JSON library
 is unnecessary. `SimpleJSON` builds outgoing messages; `SimpleJSONParser` reads
 the limited set of incoming ones (string / number / bool / one nested object).
+The parser correctly skips escaped quotes inside string values and decodes
+escape sequences (so quoted text and Windows paths arrive intact).
 
 > Note: `SimpleJSON` provides an explicit `const char*` overload. Without it,
 > string literals would bind to the `bool` overload (a standard conversion),
@@ -213,7 +215,7 @@ cpp-app/
 - **`baseInstallDir` defaults to a Windows path** (`C:/SteamCloneGames`) in the
   store; per-OS defaults would be an improvement.
 - **Catalog is static** (`data/catalog.ts`) — no real store backend.
-- **`SimpleJSONParser` is intentionally minimal** (flat messages only). If the
-  protocol grows to need arrays-of-objects or escaped string contents inbound,
-  switch to a full JSON parser.
+- **`SimpleJSONParser` is intentionally minimal** (flat messages only, though it
+  does handle escaped string contents). If the protocol grows to need
+  arrays-of-objects inbound, switch to a full JSON parser.
 - **No automated tests** around the bridge protocol yet.

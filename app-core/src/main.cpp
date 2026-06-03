@@ -19,6 +19,7 @@
 #include <sstream>
 #include <iomanip>
 #include <map>
+#include <cstdlib>
 
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
@@ -151,9 +152,13 @@ static void handleMessage(AppState* app, const std::string& rawJson) {
         std::string baseDir = SimpleJSONParser::getValue(payload, "baseDirectory");
         std::vector<std::string> games;
         
-        if (!baseDir.empty() && fs::exists(baseDir)) {
-            for (const auto& entry : fs::directory_iterator(baseDir)) {
-                if (entry.is_directory()) {
+        // Use the error_code overloads so an unreadable directory (e.g. a
+        // permission error) is handled gracefully instead of throwing.
+        std::error_code ec;
+        if (!baseDir.empty() && fs::exists(baseDir, ec)) {
+            for (const auto& entry : fs::directory_iterator(baseDir, ec)) {
+                if (ec) break;
+                if (entry.is_directory(ec)) {
                     games.push_back(entry.path().filename().string());
                 }
             }
@@ -222,7 +227,14 @@ int main() {
     auto app = std::make_unique<AppState>();
 
     // ── Create WebView ──────────────────────────────────────────────────────
-    webview::webview wv(true, nullptr);
+    // Enable the inspector/dev tools only in debug builds; release builds ship
+    // without them.
+#ifdef NDEBUG
+    constexpr bool kDebugWebview = false;
+#else
+    constexpr bool kDebugWebview = true;
+#endif
+    webview::webview wv(kDebugWebview, nullptr);
     app->wv = &wv;
 
     wv.set_title("Steam Clone - Game Launcher");
@@ -362,15 +374,24 @@ int main() {
     if (!uiIndex.empty()) {
         std::string uiDir = fs::path(uiIndex).parent_path().string();
         
-        // Host UI via a local HTTP server to avoid file:// protocol issues
+        // Host UI via a local HTTP server to avoid file:// protocol issues.
+        // The server and its thread are static so the atexit handler can stop
+        // and join them on shutdown — otherwise a detached thread could touch
+        // the destroyed server during static destruction.
         static httplib::Server svr;
+        static std::thread     serverThread;
         svr.set_mount_point("/", uiDir);
-        
+
         int port = svr.bind_to_any_port("127.0.0.1");
-        std::thread([]() {
+        serverThread = std::thread([]() {
             svr.listen_after_bind();
-        }).detach();
-        
+        });
+        std::atexit([]() {
+            svr.stop();
+            if (serverThread.joinable())
+                serverThread.join();
+        });
+
         wv.navigate("http://127.0.0.1:" + std::to_string(port));
     } else {
         // Fallback: serve a minimal placeholder page
